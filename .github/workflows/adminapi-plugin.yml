@@ -4,11 +4,16 @@ on:
   push:
     branches:
       - '**'
+    tags:
+      - 'adminapi-v*'
     paths:
       - 'src/Impostor.Plugins.AdminApi/**'
       - 'src/Impostor.Api/**'
       - '.github/workflows/adminapi-plugin.yml'
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -32,16 +37,30 @@ jobs:
       - name: Publish
         run: dotnet publish -c Release -o ./publish --no-build src/Impostor.Plugins.AdminApi/Impostor.Plugins.AdminApi.csproj
 
-      - name: Upload plugin DLL
+      - name: Upload plugin DLL (artifact)
         uses: actions/upload-artifact@v4
         with:
           name: Impostor.Plugins.AdminApi
           path: publish/Impostor.Plugins.AdminApi.dll
           if-no-files-found: error
 
-      - name: Create release on tag
+      # Versioned release on explicit tag (adminapi-v0.1.0 etc.)
+      - name: Create versioned release
         if: startsWith(github.ref, 'refs/tags/adminapi-v')
         uses: softprops/action-gh-release@v2
         with:
           files: publish/Impostor.Plugins.AdminApi.dll
-          draft: true
+          draft: false
+
+      # Rolling "latest" release on every push to the feature branch,
+      # so the user gets a stable wget-able URL without tagging.
+      - name: Update rolling latest release
+        if: github.ref == 'refs/heads/claude/fix-impostor-game-discovery-LQ6OP'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: adminapi-latest
+          name: "AdminApi plugin (latest)"
+          body: "Automatisk bygget fra siste commit på branch. Lastes ned med wget."
+          files: publish/Impostor.Plugins.AdminApi.dll
+          draft: false
+          prerelease: true
