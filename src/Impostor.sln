@@ -31,6 +31,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Impostor.Benchmarks", "Impo
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Impostor.Api.Innersloth.Generator", "Impostor.Api.Innersloth.Generator\Impostor.Api.Innersloth.Generator.csproj", "{8B6C3AC5-E2B2-49F8-854D-22DFB4AB3D31}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Impostor.Plugins.AdminApi", "Impostor.Plugins.AdminApi\Impostor.Plugins.AdminApi.csproj", "{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -127,6 +129,14 @@ Global
 		{8B6C3AC5-E2B2-49F8-854D-22DFB4AB3D31}.Release|Any CPU.Build.0 = Release|Any CPU
 		{8B6C3AC5-E2B2-49F8-854D-22DFB4AB3D31}.Release|x86.ActiveCfg = Release|Any CPU
 		{8B6C3AC5-E2B2-49F8-854D-22DFB4AB3D31}.Release|x86.Build.0 = Release|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|x86.Build.0 = Debug|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|x86.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -141,5 +151,6 @@ Global
 		{3DF86F12-7099-44F6-B98B-A148213D60B1} = {9F1919B0-915B-4749-9944-697DF7E7F67F}
 		{4DB56ADD-6D3D-4D0E-A047-9D7E7D40EF99} = {56DD9707-D811-4056-9E2C-8A9CC2479B07}
 		{70F97BB7-12A1-4C7A-B2A5-B962D14B813E} = {36AA9913-E6EA-4A6C-90E6-2FD3CC2E3124}
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890} = {36AA9913-E6EA-4A6C-90E6-2FD3CC2E3124}
 	EndGlobalSection
 EndGlobal
