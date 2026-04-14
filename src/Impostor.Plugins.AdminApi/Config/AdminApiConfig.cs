@@ -20,4 +20,15 @@ public class AdminApiConfig
     /// (e.g. Docker port mapping to 127.0.0.1 or firewall).
     /// </summary>
     public string ApiKey { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Optional path to persist the ban list as JSON. If empty or the path is not writable,
+    /// bans are kept in memory only (cleared on restart).
+    /// </summary>
+    public string BanListPath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Number of recent chat messages to keep in the in-memory buffer.
+    /// </summary>
+    public int ChatLogBufferSize { get; set; } = 1000;
 }

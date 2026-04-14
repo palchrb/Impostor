@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using Impostor.Api.Games;
 using Impostor.Api.Games.Managers;
 using Impostor.Api.Innersloth;
+using Impostor.Api.Net;
 using Impostor.Api.Net.Manager;
 using Impostor.Plugins.AdminApi.Config;
 using Impostor.Plugins.AdminApi.Models;
@@ -32,6 +33,9 @@ public class AdminApiHost : BackgroundService
     private readonly IGameManager _gameManager;
     private readonly IClientManager _clientManager;
     private readonly StatsService _stats;
+    private readonly BanListService _banList;
+    private readonly ChatLogService _chatLog;
+    private readonly EventBusService _eventBus;
     private HttpListener? _listener;
 
     public AdminApiHost(
@@ -39,13 +43,19 @@ public class AdminApiHost : BackgroundService
         IOptions<AdminApiConfig> config,
         IGameManager gameManager,
         IClientManager clientManager,
-        StatsService stats)
+        StatsService stats,
+        BanListService banList,
+        ChatLogService chatLog,
+        EventBusService eventBus)
     {
         _logger = logger;
         _config = config.Value;
         _gameManager = gameManager;
         _clientManager = clientManager;
         _stats = stats;
+        _banList = banList;
+        _chatLog = chatLog;
+        _eventBus = eventBus;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -70,7 +80,7 @@ public class AdminApiHost : BackgroundService
         }
         catch (HttpListenerException ex)
         {
-            _logger.LogError(ex, "Failed to start Admin API listener on {Prefix}. On Linux the ListenIp should normally be 127.0.0.1 and the container must have the port bound.", prefix);
+            _logger.LogError(ex, "Failed to start Admin API listener on {Prefix}", prefix);
             return;
         }
 
@@ -90,21 +100,20 @@ public class AdminApiHost : BackgroundService
                 break;
             }
 
-            _ = Task.Run(() => HandleRequestAsync(context), stoppingToken);
+            _ = Task.Run(() => HandleRequestAsync(context, stoppingToken), stoppingToken);
         }
 
         _listener.Stop();
         _listener.Close();
     }
 
-    private async Task HandleRequestAsync(HttpListenerContext context)
+    private async Task HandleRequestAsync(HttpListenerContext context, CancellationToken stoppingToken)
     {
         try
         {
             var request = context.Request;
             var response = context.Response;
 
-            // Optional API key auth
             if (!string.IsNullOrEmpty(_config.ApiKey))
             {
                 var provided = request.Headers["X-Admin-Key"];
@@ -120,6 +129,7 @@ public class AdminApiHost : BackgroundService
 
             _logger.LogDebug("Admin API {Method} {Path}", method, path);
 
+            // --- Read-only ---
             if (method == "GET" && path == "/admin/stats")
             {
                 await HandleStatsAsync(response);
@@ -142,6 +152,64 @@ public class AdminApiHost : BackgroundService
             if (method == "GET" && path == "/admin/clients")
             {
                 await HandleClientsListAsync(response);
+                return;
+            }
+
+            // --- Moderation ---
+            var disconnectMatch = Regex.Match(path, @"^/admin/clients/(\d+)/disconnect$");
+            if (method == "POST" && disconnectMatch.Success)
+            {
+                await HandleDisconnectClientAsync(response, int.Parse(disconnectMatch.Groups[1].Value));
+                return;
+            }
+
+            var kickMatch = Regex.Match(path, @"^/admin/games/([^/]+)/players/(\d+)/kick$");
+            if (method == "POST" && kickMatch.Success)
+            {
+                await HandleKickPlayerAsync(response, kickMatch.Groups[1].Value, int.Parse(kickMatch.Groups[2].Value));
+                return;
+            }
+
+            // --- Ban list ---
+            if (method == "GET" && path == "/admin/bans")
+            {
+                await WriteJsonAsync(response, 200, _banList.GetAll());
+                return;
+            }
+
+            if (method == "POST" && path == "/admin/bans")
+            {
+                await HandleAddBanAsync(request, response);
+                return;
+            }
+
+            var banDeleteMatch = Regex.Match(path, @"^/admin/bans/(.+)$");
+            if (method == "DELETE" && banDeleteMatch.Success)
+            {
+                await HandleRemoveBanAsync(response, Uri.UnescapeDataString(banDeleteMatch.Groups[1].Value));
+                return;
+            }
+
+            // --- Chat log ---
+            if (method == "GET" && path == "/admin/chat/recent")
+            {
+                var limit = int.TryParse(request.QueryString["limit"], out var l) ? l : 100;
+                await WriteJsonAsync(response, 200, _chatLog.GetRecent(limit));
+                return;
+            }
+
+            var chatByGameMatch = Regex.Match(path, @"^/admin/chat/([^/]+)$");
+            if (method == "GET" && chatByGameMatch.Success)
+            {
+                var limit = int.TryParse(request.QueryString["limit"], out var l) ? l : 100;
+                await WriteJsonAsync(response, 200, _chatLog.GetByGame(chatByGameMatch.Groups[1].Value.ToUpperInvariant(), limit));
+                return;
+            }
+
+            // --- SSE events ---
+            if (method == "GET" && path == "/admin/events")
+            {
+                await HandleEventStreamAsync(response, stoppingToken);
                 return;
             }
 
@@ -229,6 +297,160 @@ public class AdminApiHost : BackgroundService
         return WriteJsonAsync(response, 200, list);
     }
 
+    private async Task HandleDisconnectClientAsync(HttpListenerResponse response, int clientId)
+    {
+        var client = _clientManager.Clients.FirstOrDefault(c => c.Id == clientId);
+        if (client == null)
+        {
+            await WriteJsonAsync(response, 404, new ErrorDto("Client not found"));
+            return;
+        }
+
+        await client.DisconnectAsync(DisconnectReason.Custom, "Disconnected by server administrator");
+        await WriteJsonAsync(response, 200, new { ok = true, clientId });
+    }
+
+    private async Task HandleKickPlayerAsync(HttpListenerResponse response, string codeStr, int playerClientId)
+    {
+        var code = TryParseGameCode(codeStr);
+        if (code == null)
+        {
+            await WriteJsonAsync(response, 400, new ErrorDto("Invalid game code"));
+            return;
+        }
+
+        var game = _gameManager.Find(code.Value);
+        if (game == null)
+        {
+            await WriteJsonAsync(response, 404, new ErrorDto("Game not found"));
+            return;
+        }
+
+        var player = game.GetClientPlayer(playerClientId);
+        if (player == null)
+        {
+            await WriteJsonAsync(response, 404, new ErrorDto("Player not found in game"));
+            return;
+        }
+
+        await player.KickAsync();
+        await WriteJsonAsync(response, 200, new { ok = true, code = game.Code.Code, clientId = playerClientId });
+    }
+
+    private async Task HandleAddBanAsync(HttpListenerRequest request, HttpListenerResponse response)
+    {
+        using var reader = new StreamReader(request.InputStream, request.ContentEncoding);
+        var body = await reader.ReadToEndAsync();
+
+        AddBanDto? dto;
+        try
+        {
+            dto = JsonSerializer.Deserialize<AddBanDto>(body, JsonOptions);
+        }
+        catch (JsonException)
+        {
+            await WriteJsonAsync(response, 400, new ErrorDto("Invalid JSON body"));
+            return;
+        }
+
+        if (dto == null || string.IsNullOrWhiteSpace(dto.Ip))
+        {
+            await WriteJsonAsync(response, 400, new ErrorDto("Missing 'ip' field"));
+            return;
+        }
+
+        if (!IPAddress.TryParse(dto.Ip, out _))
+        {
+            await WriteJsonAsync(response, 400, new ErrorDto("Invalid IP address"));
+            return;
+        }
+
+        var added = _banList.Add(dto.Ip, dto.Reason);
+
+        // Optionally kick all currently connected clients from that IP
+        foreach (var client in _clientManager.Clients.ToArray())
+        {
+            var endpoint = client.Connection?.EndPoint;
+            if (endpoint != null && endpoint.Address.ToString() == dto.Ip)
+            {
+                try
+                {
+                    await client.DisconnectAsync(DisconnectReason.Banned);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to disconnect banned client {ClientId}", client.Id);
+                }
+            }
+        }
+
+        await WriteJsonAsync(response, added ? 201 : 200, new { ok = true, added, ip = dto.Ip });
+    }
+
+    private async Task HandleRemoveBanAsync(HttpListenerResponse response, string ip)
+    {
+        var removed = _banList.Remove(ip);
+        await WriteJsonAsync(response, removed ? 200 : 404, new { ok = removed, ip });
+    }
+
+    private async Task HandleEventStreamAsync(HttpListenerResponse response, CancellationToken stoppingToken)
+    {
+        response.StatusCode = 200;
+        response.ContentType = "text/event-stream";
+        response.Headers["Cache-Control"] = "no-cache";
+        response.Headers["X-Accel-Buffering"] = "no";
+        response.SendChunked = true;
+
+        // Keep connection open
+        response.KeepAlive = true;
+
+        await using var subscription = _eventBus.Subscribe();
+
+        // Send initial hello
+        await WriteSseEventAsync(response, "hello", new { subscriptionId = subscription.Id });
+
+        try
+        {
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                try
+                {
+                    var evt = await subscription.Reader.ReadAsync(stoppingToken);
+                    await WriteSseEventAsync(response, evt.Type, evt);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (Exception)
+                {
+                    // Client disconnected
+                    break;
+                }
+            }
+        }
+        finally
+        {
+            try
+            {
+                response.Close();
+            }
+            catch
+            {
+                // Ignore
+            }
+        }
+    }
+
+    private static async Task WriteSseEventAsync(HttpListenerResponse response, string eventType, object data)
+    {
+        var json = JsonSerializer.Serialize(data, JsonOptions);
+        var payload = $"event: {eventType}\ndata: {json}\n\n";
+        var bytes = Encoding.UTF8.GetBytes(payload);
+        await response.OutputStream.WriteAsync(bytes);
+        await response.OutputStream.FlushAsync();
+    }
+
     private static GameSummaryDto MapGameSummary(IGame game)
     {
         var host = game.Host;
@@ -251,7 +473,7 @@ public class AdminApiHost : BackgroundService
             HostClientId: host?.Client.Id ?? -1);
     }
 
-    private static PlayerDto MapPlayer(Api.Net.IClientPlayer player)
+    private static PlayerDto MapPlayer(IClientPlayer player)
     {
         var client = player.Client;
         var endpoint = client.Connection?.EndPoint;
@@ -280,7 +502,6 @@ public class AdminApiHost : BackgroundService
     {
         try
         {
-            // Try as 6-letter Among Us game code first (e.g. "ABCDEF")
             if (codeStr.Length >= 4 && !int.TryParse(codeStr, out _))
             {
                 return GameCode.From(codeStr.ToUpperInvariant());
@@ -310,3 +531,5 @@ public class AdminApiHost : BackgroundService
         response.Close();
     }
 }
+
+public record AddBanDto(string Ip, string? Reason);
