@@ -1,4 +1,5 @@
 using Impostor.Api.Events;
+using Impostor.Api.Games;
 using Impostor.Api.Innersloth;
 using Impostor.Plugins.AdminApi.Services;
 using Microsoft.Extensions.Logging;
