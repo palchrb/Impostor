@@ -22,10 +22,12 @@ public class AdminApiConfig
     public string ApiKey { get; set; } = string.Empty;
 
     /// <summary>
-    /// Optional path to persist the ban list as JSON. If empty or the path is not writable,
-    /// bans are kept in memory only (cleared on restart).
+    /// Path to persist the ban list as JSON. The parent directory is created automatically
+    /// if it does not exist. Defaults to the libraries folder which is writable in the
+    /// standard Impostor Docker setup. Set to empty string to disable persistence
+    /// (bans then only live in memory and are cleared on restart).
     /// </summary>
-    public string BanListPath { get; set; } = string.Empty;
+    public string BanListPath { get; set; } = "libraries/adminapi/bans.json";
 
     /// <summary>
     /// Number of recent chat messages to keep in the in-memory buffer.
